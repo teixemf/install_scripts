@@ -7,10 +7,10 @@
 #
 # USO: Guarde este ficheiro como 'install_grocy.sh' no seu LXC Debian 12 e execute-o como root.
 #      Modo Interativo:
-#      chmod +x install_grocy.sh && ./install_grocy.sh
+#      chmod +x install_grocy.sh && ./install_or_upgrade_grocy_https_cf_82.sh
 #
 #      Modo Automatizado (HTTPS):
-#      chmod +x install_grocy.sh && ./install_grocy.sh <DOMÍNIO> <EMAIL> <CF_TOKEN> [production|staging]
+#      chmod +x install_grocy.sh && ./install_or_upgrade_grocy_https_cf_82.sh <DOMÍNIO> <EMAIL> <CF_TOKEN> [production|staging]
 
 # ==============================================================================
 # 1. FUNÇÕES AUXILIARES E DE LOGGING
@@ -58,8 +58,9 @@ setup_php_debian() {
     DEBIAN_FRONTEND=noninteractive apt-get update >/dev/null 2>&1 || fatal "Falha ao atualizar o apt."
     
     # Instalar explicitamente todas as dependências venv por segurança
-    msg_info "A instalar dependências básicas (curl, python3-pip, python3-venv, python3.11-venv, cron)"
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --only-upgrade curl apt-transport-https unzip python3 python3-pip python3-venv python3.11-venv cron >/dev/null 2>&1
+    # Removida a redundância 'python3.11-venv', mantendo apenas o metapacote 'python3-venv'.
+    msg_info "A instalar dependências básicas (curl, python3-pip, python3-venv, cron)"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y curl apt-transport-https unzip python3 python3-pip python3-venv cron >/dev/null 2>&1
 
     # Executamos o upgrade do sistema
     DEBIAN_FRONTEND=noninteractive apt-get -y dist-upgrade >/dev/null 2>&1
@@ -232,6 +233,7 @@ EOF
     # --- Emitir Certificado ---
     msg_info "A emitir certificado Let's Encrypt para $DOMAIN (Ambiente: ${LE_ENV})..."
     
+    # REMOVIDO: Argumento não reconhecido (--overwrite-cert)
     /opt/certbot-cf-venv/bin/certbot certonly \
         --dns-cloudflare \
         --dns-cloudflare-credentials "$CF_CRED_FILE" \
@@ -304,6 +306,7 @@ configure_apache_https() {
     a2enmod ssl headers rewrite >/dev/null 2>&1
     
     # Ficheiros do Certificado
+    # O caminho continua a usar o DOMAIN, dependendo do --overwrite-cert
     local CERT_PATH="/etc/letsencrypt/live/$DOMAIN"
     
     # Configurar o VirtualHost HTTP para redirecionar para HTTPS (porta 80)
