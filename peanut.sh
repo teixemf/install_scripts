@@ -30,6 +30,7 @@ APP_PORT="3000"
 APP_DIR="/opt/peanut"
 APP_CONFIG_DIR="/etc/peanut"
 APP_CONFIG_FILE="${APP_CONFIG_DIR}/settings.yml"
+# Caminho para o executável do Node.js após o build
 APP_EXEC_FILE="${APP_DIR}/.next/standalone/server.js"
 GITHUB_REPO="Brandawg93/PeaNUT"
 
@@ -138,7 +139,7 @@ show_help() {
     echo "  -r, --remove      Remove completamente a instalação do ${APP_NAME}."
     echo "  -v, --verbose     Ativa o modo verboso (mostra o output dos comandos de instalação)."
     echo ""
-    echo "Modo Interativo (Apenas HTTP):"
+    echo "Modo Interativo (Perguntas sobre HTTPS):"
     echo "  $0"
     echo ""
     echo "Modo Automatizado (Com HTTPS):"
@@ -157,6 +158,7 @@ setup_nodejs_and_pnpm() {
     
     # Adicionar chave GPG do NodeSource
     local NODE_KEYRING="/usr/share/keyrings/nodesource.gpg"
+    # Remover chave antiga para evitar conflitos de sobrescrita (idempotente)
     if [ -f "$NODE_KEYRING" ]; then run_quietly "rm -f $NODE_KEYRING" "Falha ao remover a chave GPG antiga do NodeSource."; fi
     run_quietly "curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o $NODE_KEYRING" "Falha ao descarregar a chave GPG do NodeSource."
     
@@ -384,8 +386,10 @@ setup_https() {
         
         if [[ "$LE_ENV" == "staging" ]]; then
             LE_SERVER_ARG="--staging"
+            msg_info "AVISO: A usar ambiente Let's Encrypt de TESTE (staging)."
         else
             LE_ENV="production"
+            msg_info "A usar ambiente Let's Encrypt de PRODUÇÃO."
         fi
     else
         # Se os argumentos não foram passados, perguntar interativamente
@@ -412,8 +416,10 @@ setup_https() {
         if [[ "$LE_ENV_CHOICE" == "s" ]]; then
             LE_SERVER_ARG="--staging"
             LE_ENV="staging"
+            msg_info "AVISO: Usar Staging é útil para testes. O certificado NÃO será válido publicamente."
         else
             LE_ENV="production"
+            msg_info "A usar ambiente de PRODUÇÃO (Certificado válido)."
         fi
     fi
     
@@ -423,9 +429,9 @@ setup_https() {
     
     msg_info "A instalar Certbot e Plugin Cloudflare no ambiente virtual"
     
-    # Bloco Try/Catch para a criação do VENV
+    # Bloco Try/Catch para a criação do VENV (baseado na nossa experiência anterior)
     if ! python3 -m venv /opt/certbot-cf-venv 2>/dev/null; then
-        msg_error "Falha ao criar venv (tentativa 1). A forçar instalação de python3-venv..."
+        msg_error "Falha ao criar venv (tentativa 1). A forçar instalação de python3.11-venv..."
         run_quietly "apt-get install -y python3-venv python3.11-venv" "Falha ao instalar python3-venv."
         # Tentar novamente após instalação explícita
         python3 -m venv /opt/certbot-cf-venv || fatal "Falha crítica ao criar o ambiente virtual Python."
@@ -546,7 +552,7 @@ server {
     ssl_certificate_key ${CERT_PATH}/privkey.pem;
     
     ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers 'TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM_SHA384:DHE-RSA-AES128-GCM-SHA256';
+    ssl_ciphers 'TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256';
     ssl_prefer_server_ciphers on;
 
     add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload";
@@ -625,10 +631,16 @@ main() {
     CLI_CF_TOKEN="${args[2]:-}"
     CLI_ENV="${args[3]:-}"
     
-    # Se nenhum argumento posicional ou flag for passado, mostrar ajuda
+    # Se nenhum argumento posicional ou flag for passado, mostrar ajuda (e permitir modo interativo)
     if [[ ${#args[@]} -eq 0 && $QUIET_MODE == true && $REMOVE_MODE == false ]]; then
         show_help
-        exit 0
+        
+        # Permitir que o utilizador decida se quer continuar interativamente
+        read -r -p "Nenhum argumento fornecido. Deseja continuar em modo interativo? [Y/n]: " CONTINUE_INTERACTIVE
+        CONTINUE_INTERACTIVE=$(echo "$CONTINUE_INTERACTIVE" | tr '[:upper:]' '[:lower:]')
+        if [[ "$CONTINUE_INTERACTIVE" == "n" ]]; then
+            exit 0
+        fi
     fi
     
     # 1. Instalar/Atualizar PeaNUT e Dependências (com novo utilizador)
