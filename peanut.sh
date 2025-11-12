@@ -80,6 +80,7 @@ start_spinner() {
 }
 
 stop_spinner() {
+    # Corrigido: Usar 'fi' para fechar 'if'
     if [ -n "$SPINNER_PID" ]; then
         kill "$SPINNER_PID" 2>/dev/null
         wait "$SPINNER_PID" 2>/dev/null
@@ -162,7 +163,7 @@ setup_nodejs_and_pnpm() {
     if [ -f "$NODE_KEYRING" ]; then run_quietly "rm -f $NODE_KEYRING" "Falha ao remover a chave GPG antiga do NodeSource."; fi
     run_quietly "curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o $NODE_KEYRING" "Falha ao descarregar a chave GPG do NodeSource."
     
-    # Adicionar repositório NodeSource
+    # Adicionar repositório NodeSource (Formato DEB822)
     echo "Types: deb
 URIs: https://deb.nodesource.com/node_$NODE_VERSION.x
 Suites: nodistro
@@ -185,7 +186,8 @@ setup_app() {
     run_quietly "DEBIAN_FRONTEND=noninteractive apt-get update" "Falha ao atualizar o apt."
     
     msg_info "A instalar dependências (nginx, git, curl, wget, python3-venv, cron, openssl, jq, tar, nut-client)"
-    run_quietly "DEBIAN_FRONTEND=noninteractive apt-get install -y nginx git curl python3 python3-pip python3-venv cron openssl wget jq tar nut-client" "Falha ao instalar dependências."
+    # Adicionado 'nut-client' (específico do PeaNUT) e 'python3.11-venv' (fix venv)
+    run_quietly "DEBIAN_FRONTEND=noninteractive apt-get install -y nginx git curl python3 python3-pip python3-venv python3.11-venv cron openssl wget jq tar nut-client" "Falha ao instalar dependências."
 
     run_quietly "DEBIAN_FRONTEND=noninteractive apt-get -y dist-upgrade" "Falha ao fazer upgrade do sistema."
     msg_ok "Sistema e utilidades atualizadas"
@@ -219,6 +221,8 @@ setup_app() {
     # --- Instalação e Build ---
     msg_info "A instalar e compilar (build) ${APP_NAME}..."
     mkdir -p "$APP_DIR"
+    # Limpar diretório antigo para garantir um 'clean build' (como no script original)
+    run_quietly "rm -rf ${APP_DIR}/*" "Falha ao limpar o diretório de instalação antigo."
     # --strip-components=1 remove a pasta de topo (ex: PeaNUT-vX.X.X/) do tarball
     run_quietly "tar -xzf ${TEMP_FILE} -C ${APP_DIR} --strip-components=1" "Falha ao extrair o código fonte."
     run_quietly "rm -f ${TEMP_FILE}" ""
@@ -430,11 +434,14 @@ setup_https() {
     msg_info "A instalar Certbot e Plugin Cloudflare no ambiente virtual"
     
     # Bloco Try/Catch para a criação do VENV (baseado na nossa experiência anterior)
+    # 💥 CORREÇÃO V7 (Try/Catch Venv): Tenta criar, se falhar, instala dependências e tenta novamente
     if ! python3 -m venv /opt/certbot-cf-venv 2>/dev/null; then
-        msg_error "Falha ao criar venv (tentativa 1). A forçar instalação de python3.11-venv..."
-        run_quietly "apt-get install -y python3-venv python3.11-venv" "Falha ao instalar python3-venv."
-        # Tentar novamente após instalação explícita
-        python3 -m venv /opt/certbot-cf-venv || fatal "Falha crítica ao criar o ambiente virtual Python."
+        msg_error "Falha ao criar venv (tentativa 1). A forçar instalação de python3-venv e python3.11-venv..."
+        # Instala AMBOS os pacotes venv para máxima compatibilidade em LXC
+        run_quietly "apt-get install -y python3-venv python3.11-venv" "Falha ao instalar python3-venv / python3.11-venv."
+        
+        # Tentar novamente após instalação explícita, usando python3.11 (mais específico)
+        python3.11 -m venv /opt/certbot-cf-venv || fatal "Falha crítica ao criar o ambiente virtual Python."
     fi
     
     source /opt/certbot-cf-venv/bin/activate
@@ -492,6 +499,7 @@ EOF
     
     msg_info "A configurar renovação automática do certificado"
     CRON_CONTENT=$(crontab -l 2>/dev/null || echo "")
+    # 💥 CORREÇÃO V8 (Fix Crontab): Evita erro em crontabs vazios
     (echo "$CRON_CONTENT" | grep -v 'certbot renew'; echo "0 3 * * * /opt/certbot-cf-venv/bin/certbot renew --quiet --nginx") | crontab - || fatal "Falha ao definir o cron job."
     msg_ok "Renovação automática configurada."
 }
@@ -574,6 +582,7 @@ EOF
     run_quietly "ln -sf /etc/nginx/sites-available/peanut /etc/nginx/sites-enabled/peanut" "Falha ao ativar o site ${APP_NAME}."
     
     run_quietly "nginx -t" "Falha na sintaxe do Nginx após configurar HTTPS."
+    # 💥 CORREÇÃO V16 (Fix Certificado Staging): Usar 'restart' em vez de 'reload'
     run_quietly "systemctl restart nginx" "Falha ao reiniciar o Nginx."
     msg_ok "Nginx configurado para HTTPS (Porta 443) e REINICIADO."
 }
