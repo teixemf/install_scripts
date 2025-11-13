@@ -163,13 +163,8 @@ setup_nodejs_and_pnpm() {
     if [ -f "$NODE_KEYRING" ]; then run_quietly "rm -f $NODE_KEYRING" "Falha ao remover a chave GPG antiga do NodeSource."; fi
     run_quietly "curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o $NODE_KEYRING" "Falha ao descarregar a chave GPG do NodeSource."
     
-    # Adicionar repositório NodeSource (Formato DEB822)
-    echo "Types: deb
-URIs: https://deb.nodesource.com/node_$NODE_VERSION.x
-Suites: nodistro
-Components: main
-Signed-By: $NODE_KEYRING
-" > /etc/apt/sources.list.d/nodesource.list
+    # 💥 CORREÇÃO: Usar o formato de repositório de linha única (legacy) em vez do formato DEB822
+    echo "deb [signed-by=$NODE_KEYRING] https://deb.nodesource.com/node_$NODE_VERSION.x nodistro main" > /etc/apt/sources.list.d/nodesource.list
 
     run_quietly "apt-get update" "Falha ao atualizar o apt após adicionar o NodeSource."
     run_quietly "apt-get install -y nodejs" "Falha ao instalar o Node.js."
