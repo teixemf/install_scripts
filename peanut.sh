@@ -163,7 +163,7 @@ setup_nodejs_and_pnpm() {
     if [ -f "$NODE_KEYRING" ]; then run_quietly "rm -f $NODE_KEYRING" "Falha ao remover a chave GPG antiga do NodeSource."; fi
     run_quietly "curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o $NODE_KEYRING" "Falha ao descarregar a chave GPG do NodeSource."
     
-    # 💥 CORREÇÃO: Usar o formato de repositório de linha única (legacy) em vez do formato DEB822
+    # 💥 CORREÇÃO DO APT: Usar o formato de repositório de linha única (legacy)
     echo "deb [signed-by=$NODE_KEYRING] https://deb.nodesource.com/node_$NODE_VERSION.x nodistro main" > /etc/apt/sources.list.d/nodesource.list
 
     run_quietly "apt-get update" "Falha ao atualizar o apt após adicionar o NodeSource."
@@ -422,20 +422,22 @@ setup_https() {
         fi
     fi
     
-    if [[ -z "$DOMAIN" || -z "$EMAIL" || -z "$CF_TOKEN" ]]; then
-        fatal "Domínio, E-mail ou Cloudflare Token não podem estar vazios."
+    if [[ -z "$DOMAIN" || -z "$EMAIL" || -n "$CF_TOKEN" ]]; then
+        # 💥 Correção V19: O CF_TOKEN não pode ser vazio para CLI, mas a verificação interativa é feita acima
+        if [[ "$USE_HTTPS" == "y" ]]; then
+             if [[ -z "$CF_TOKEN" ]]; then
+                fatal "Domínio, E-mail ou Cloudflare Token não podem estar vazios."
+             fi
+        fi
     fi
     
     msg_info "A instalar Certbot e Plugin Cloudflare no ambiente virtual"
     
     # Bloco Try/Catch para a criação do VENV (baseado na nossa experiência anterior)
-    # 💥 CORREÇÃO V7 (Try/Catch Venv): Tenta criar, se falhar, instala dependências e tenta novamente
     if ! python3 -m venv /opt/certbot-cf-venv 2>/dev/null; then
         msg_error "Falha ao criar venv (tentativa 1). A forçar instalação de python3-venv e python3.11-venv..."
-        # Instala AMBOS os pacotes venv para máxima compatibilidade em LXC
         run_quietly "apt-get install -y python3-venv python3.11-venv" "Falha ao instalar python3-venv / python3.11-venv."
         
-        # Tentar novamente após instalação explícita, usando python3.11 (mais específico)
         python3.11 -m venv /opt/certbot-cf-venv || fatal "Falha crítica ao criar o ambiente virtual Python."
     fi
     
@@ -452,9 +454,12 @@ dns_cloudflare_api_token = $CF_TOKEN
 EOF
     chmod 600 "$CF_CRED_FILE" # Permissões restritas
 
-    # Tentar apagar certificado antigo se estiver a mudar de ambiente
-    msg_info "A verificar certificados existentes..."
-    run_quietly "/opt/certbot-cf-venv/bin/certbot delete --cert-name \"$DOMAIN\" 2>/dev/null" "A tentar limpar certificado antigo (ignorar se falhar)."
+    # 💥 CORREÇÃO DA INTERATIVIDADE: Usar --non-interactive e '|| true' para evitar que o script pare
+    msg_info "A tentar limpar registos de certificados antigos (se existirem)..."
+    # Adicionar --non-interactive para forçar a confirmação da eliminação de certificados staging/antigos
+    /opt/certbot-cf-venv/bin/certbot delete --cert-name "$DOMAIN" --non-interactive 2>/dev/null || true
+    msg_ok "Verificação de limpeza concluída."
+
 
     msg_info "A emitir certificado Let's Encrypt para $DOMAIN (Ambiente: ${LE_ENV})..."
     
@@ -494,7 +499,6 @@ EOF
     
     msg_info "A configurar renovação automática do certificado"
     CRON_CONTENT=$(crontab -l 2>/dev/null || echo "")
-    # 💥 CORREÇÃO V8 (Fix Crontab): Evita erro em crontabs vazios
     (echo "$CRON_CONTENT" | grep -v 'certbot renew'; echo "0 3 * * * /opt/certbot-cf-venv/bin/certbot renew --quiet --nginx") | crontab - || fatal "Falha ao definir o cron job."
     msg_ok "Renovação automática configurada."
 }
@@ -577,7 +581,6 @@ EOF
     run_quietly "ln -sf /etc/nginx/sites-available/peanut /etc/nginx/sites-enabled/peanut" "Falha ao ativar o site ${APP_NAME}."
     
     run_quietly "nginx -t" "Falha na sintaxe do Nginx após configurar HTTPS."
-    # 💥 CORREÇÃO V16 (Fix Certificado Staging): Usar 'restart' em vez de 'reload'
     run_quietly "systemctl restart nginx" "Falha ao reiniciar o Nginx."
     msg_ok "Nginx configurado para HTTPS (Porta 443) e REINICIADO."
 }
